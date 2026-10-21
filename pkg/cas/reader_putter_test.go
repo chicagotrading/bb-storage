@@ -74,6 +74,29 @@ func TestReaderPutterMultipleChunks(t *testing.T) {
 	require.NoError(t, cas.NewReaderPutter(chunkStorage, chunkMappingStorage).PutReader(ctx, d, bytes.NewReader(data), params))
 }
 
+// Chunks the caller already knows to be present are neither checked
+// nor rewritten; the remaining chunks still are.
+func TestReaderPutterSkipsPresentChunks(t *testing.T) {
+	ctrl, ctx := gomock.WithContext(context.Background(), t)
+	chunkStorage := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
+	chunkMappingStorage := mock.NewMockBlobAccess[chunk.Mapping](ctrl)
+
+	data := []byte("The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The end.")
+	d := digest.MustNewDigest("instance", remoteexecution.DigestFunction_MD5, "c1df2b2b8aa945f29de62076a8f1e2d9", int64(len(data)))
+	params := &remoteexecution.RepMaxCdcParams{MinChunkSizeBytes: 64, HorizonSizeBytes: 128}
+
+	chunk0 := digest.MustNewDigest("instance", remoteexecution.DigestFunction_MD5, "9871f053ed93e778d5090e3dc038815d", 77)
+	chunk1 := digest.MustNewDigest("instance", remoteexecution.DigestFunction_MD5, "2044d462a0be5850ee579b02a1ca3b25", 66)
+	expectedChunkMapping, err := chunk.NewMappingFromDigests([]digest.Digest{chunk0, chunk1}, 143, true)
+	require.NoError(t, err)
+
+	chunkStorage.EXPECT().FindMissing(ctx, chunk1.ToSingletonSet()).Return(chunk1.ToSingletonSet(), nil)
+	chunkStorage.EXPECT().Put(ctx, chunk1, gomock.Any()).Return(nil)
+	chunkMappingStorage.EXPECT().Put(ctx, d, expectedChunkMapping).Return(nil)
+
+	require.NoError(t, cas.NewReaderPutter(chunkStorage, chunkMappingStorage).PutReaderWithPresentChunks(ctx, d, bytes.NewReader(data), params, chunk0.ToSingletonSet()))
+}
+
 func TestReaderPutterRejectsBadDigests(t *testing.T) {
 	params := &remoteexecution.RepMaxCdcParams{MinChunkSizeBytes: 64, HorizonSizeBytes: 128}
 	otherHash := "eab353922642ccc0f6fd34c5e0c57888"

@@ -99,8 +99,8 @@ func TestChunkMappingValidatingBlobAccessPutManualSplice(t *testing.T) {
 	chunkStorage.EXPECT().FindMissing(gomock.Any(), digest.NewSetBuilder(2).Add(chunk1Digest).Add(chunk2Digest).Build()).Return(digest.EmptySet, nil)
 	chunkBytesReader.EXPECT().Read(gomock.Any(), chunk1Digest).Return(chunk1Data, nil)
 	chunkBytesReader.EXPECT().Read(gomock.Any(), chunk2Digest).Return(chunk2Data, nil)
-	readerPutter.EXPECT().PutReader(gomock.Any(), fullBlobDigest, gomock.Any(), testCDCParams).DoAndReturn(
-		func(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams) error {
+	readerPutter.EXPECT().PutReaderWithPresentChunks(gomock.Any(), fullBlobDigest, gomock.Any(), testCDCParams, digest.NewSetBuilder(2).Add(chunk1Digest).Add(chunk2Digest).Build()).DoAndReturn(
+		func(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams, presentChunks digest.Set) error {
 			data, err := io.ReadAll(r)
 			require.NoError(t, err)
 			require.Equal(t, expectedFullData, data)
@@ -143,8 +143,8 @@ func TestChunkMappingValidatingBlobAccessPutCanonicalization(t *testing.T) {
 	chunkMappingStorage.EXPECT().Get(gomock.Any(), fullBlobDigest).Return(chunk.Mapping{}, status.Error(codes.NotFound, "Blob not found"))
 	chunkBytesReader.EXPECT().Read(gomock.Any(), chunk1Digest).Return(chunk1Data, nil)
 	chunkBytesReader.EXPECT().Read(gomock.Any(), chunk2Digest).Return(chunk2Data, nil)
-	readerPutter.EXPECT().PutReader(gomock.Any(), fullBlobDigest, gomock.Any(), testCDCParams).DoAndReturn(
-		func(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams) error {
+	readerPutter.EXPECT().PutReaderWithPresentChunks(gomock.Any(), fullBlobDigest, gomock.Any(), testCDCParams, digest.NewSetBuilder(2).Add(chunk1Digest).Add(chunk2Digest).Build()).DoAndReturn(
+		func(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams, presentChunks digest.Set) error {
 			data, err := io.ReadAll(r)
 			require.NoError(t, err)
 			require.Equal(t, blobData, data)
@@ -210,8 +210,8 @@ func TestChunkMappingValidatingBlobAccessPutRepeatedChunks(t *testing.T) {
 	chunkStorage.EXPECT().FindMissing(gomock.Any(), digest.NewSetBuilder(2).Add(digestA).Add(digestB).Build()).Return(digest.EmptySet, nil)
 	chunkBytesReader.EXPECT().Read(gomock.Any(), digestA).Return(chunkAData, nil).Times(3)
 	chunkBytesReader.EXPECT().Read(gomock.Any(), digestB).Return(chunkBData, nil)
-	readerPutter.EXPECT().PutReader(gomock.Any(), expectedDigest, gomock.Any(), testCDCParams).DoAndReturn(
-		func(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams) error {
+	readerPutter.EXPECT().PutReaderWithPresentChunks(gomock.Any(), expectedDigest, gomock.Any(), testCDCParams, digest.NewSetBuilder(2).Add(digestA).Add(digestB).Build()).DoAndReturn(
+		func(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams, presentChunks digest.Set) error {
 			data, err := io.ReadAll(r)
 			require.NoError(t, err)
 			require.Equal(t, expectedData, data)

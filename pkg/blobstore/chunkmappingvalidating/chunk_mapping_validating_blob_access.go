@@ -17,6 +17,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// reassemblyPrefetchConcurrency bounds the number of chunk fetches kept
+// in flight while a blob is reassembled for validation.
+const reassemblyPrefetchConcurrency = 16
+
 type chunkMappingValidatingBlobAccess struct {
 	blobstore.BlobAccess[chunk.Mapping]
 	chunkStorage         blobstore.BlobAccess[*chunk.Chunk]
@@ -105,9 +109,16 @@ func (ba *chunkMappingValidatingBlobAccess) Put(ctx context.Context, d digest.Di
 		return nil
 	}
 	// No more shortcuts available. The blob is reassembled from the
-	// stored chunk bytes and re-chunked canonically.
-	reader := chunk.NewReaderFromDigests(ctx, value.GetDigests(), ba.chunkBytesReader)
-	return ba.readerPutter.PutReader(ctx, d, reader, params)
+	// stored chunk bytes and re-chunked canonically. The chunks were
+	// just verified to be present, so canonical chunks that coincide
+	// with them need no further existence checks.
+	chunkDigests := value.GetDigests()
+	presentChunks := digest.NewSetBuilder(len(chunkDigests))
+	for _, chunkDigest := range chunkDigests {
+		presentChunks.Add(chunkDigest)
+	}
+	reader := chunk.NewPrefetchingReaderFromDigests(ctx, chunkDigests, ba.chunkBytesReader, reassemblyPrefetchConcurrency)
+	return ba.readerPutter.PutReaderWithPresentChunks(ctx, d, reader, params, presentChunks.Build())
 }
 
 func (ba *chunkMappingValidatingBlobAccess) flattenAndVerifyPresence(ctx context.Context, params *remoteexecution.RepMaxCdcParams, userChunkMapping chunk.Mapping) (chunk.Mapping, error) {

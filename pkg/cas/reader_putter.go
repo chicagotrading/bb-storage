@@ -25,10 +25,6 @@ type ReaderPutter interface {
 	// utilizing the random access afforded by the io.ReaderAt
 	// interface.
 	PutReaderAt(ctx context.Context, d digest.Digest, r io.ReaderAt, params *remoteexecution.RepMaxCdcParams) error
-	// PutReaderWithPresentChunks is PutReader for callers that have
-	// already established that the given chunks exist in the Chunk
-	// Storage. Chunks in this set are neither checked nor rewritten.
-	PutReaderWithPresentChunks(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams, presentChunks digest.Set) error
 }
 
 type readerPutter struct {
@@ -45,15 +41,7 @@ func NewReaderPutter(chunkStorage blobstore.BlobAccess[*chunk.Chunk], chunkMappi
 }
 
 func (rp *readerPutter) PutReader(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams) error {
-	return rp.PutReaderWithPresentChunks(ctx, d, r, params, digest.EmptySet)
-}
-
-func (rp *readerPutter) PutReaderWithPresentChunks(ctx context.Context, d digest.Digest, r io.Reader, params *remoteexecution.RepMaxCdcParams, presentChunks digest.Set) error {
 	digestFunction := d.GetDigestFunction()
-	present := make(map[digest.Digest]struct{}, presentChunks.Length())
-	for _, chunkDigest := range presentChunks.Items() {
-		present[chunkDigest] = struct{}{}
-	}
 
 	if IsSingleChunk(params, d) {
 		// Blob will fit in a single chunk, so we read it directly
@@ -128,16 +116,14 @@ func (rp *readerPutter) PutReaderWithPresentChunks(ctx context.Context, d digest
 		// as we can chunk as fast as possible. This does require some
 		// form of semaphore to prevent memory use from growing
 		// uncontrollably.
-		if _, ok := present[chunkDigest]; !ok {
-			missing, err := rp.chunkStorage.FindMissing(ctx, chunkDigest.ToSingletonSet())
-			if err != nil {
-				return err
-			}
-			if !missing.Empty() {
-				// The calculated chunk was not present in Chunk Storage.
-				if err := rp.chunkStorage.Put(ctx, chunkDigest, chunk.NewChunk(data)); err != nil {
-					return util.StatusWrap(err, "Failed to save chunk")
-				}
+		missing, err := rp.chunkStorage.FindMissing(ctx, chunkDigest.ToSingletonSet())
+		if err != nil {
+			return err
+		}
+		if !missing.Empty() {
+			// The calculated chunk was not present in Chunk Storage.
+			if err := rp.chunkStorage.Put(ctx, chunkDigest, chunk.NewChunk(data)); err != nil {
+				return util.StatusWrap(err, "Failed to save chunk")
 			}
 		}
 
